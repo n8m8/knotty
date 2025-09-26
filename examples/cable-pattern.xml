@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pattern name="Simple Cable" technique="hand" form="flat">
+  <row number="1">p2 k4 p2</row>
+  <row number="2">k2 rc-2/2 k2</row>
+  <row number="3">p2 k4 p2</row>
+  <row number="4">k2 p4 k2</row>
+  <row number="5">p2 k4 p2</row>
+  <row number="6">k2 p4 k2</row>
+  <row number="7">p2 k4 p2</row>
+  <row number="8">k2 p4 k2</row>
+</pattern>
