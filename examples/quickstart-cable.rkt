@@ -2,7 +2,7 @@
 
 require "knotty-lib/main.rkt"
 
-;; Quickstart Example 3: Cable Pattern Test
+;; Cable Pattern Example
 ;; Uses proper cable stitch rc-2/2 instead of c4f
 
 define

@@ -1,6 +1,9 @@
 #lang sweet-exp typed/racket
 require "knotty-lib/main.rkt"
 
+;; Basic Stockinette Pattern Example
+;; Simple knit/purl alternating rows
+
 define
   basic-stockinette
   pattern

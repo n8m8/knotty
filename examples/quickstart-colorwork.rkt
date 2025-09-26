@@ -2,6 +2,7 @@
 
 (require "knotty-lib/main.rkt")
 
+;; Colorwork Pattern Example
 ;; Create yarns with colors
 (define red-yarn (yarn #xFF0000 "Red"))
 (define blue-yarn (yarn #x0000FF "Blue"))

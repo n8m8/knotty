@@ -1,6 +1,9 @@
 #lang sweet-exp typed/racket
 require "knotty-lib/main.rkt"
 
+;; Stockinette Pattern with HTML Export Example
+;; Basic pattern exported to HTML file
+
 define
   basic-stockinette
   pattern
