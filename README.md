@@ -1,10 +1,41 @@
 # Knotty
 
-Domain Specific Language for knitting patterns
+Domain Specific Language for knitting patterns with comprehensive AI-driven rebuild system
 
 [![Coverage Status](https://coveralls.io/repos/github/t0mpr1c3/knotty/badge.svg?branch=main)](https://coveralls.io/github/t0mpr1c3/knotty?branch=main)
 
-[Documentation](https://t0mpr1c3.github.io/knotty/index.html)
+[Documentation](https://t0mpr1c3.github.io/knotty/index.html) | [AI Rebuild Guide](docs/ai-rebuild/)
+
+## 🤖 AI-Driven Rebuild System
+
+Knotty features a complete AI-driven rebuild system designed for autonomous setup, development, and deployment by AI agents. The system ensures consistent, reliable builds across all platforms with comprehensive automation and error recovery.
+
+### Quick Start for AI Agents
+
+```bash
+# Autonomous setup (30-second build target)
+git clone https://github.com/t0mpr1c3/knotty.git
+cd knotty
+# Follow setup guides in docs/ai-rebuild/ for platform-specific instructions
+```
+
+### AI Agent Documentation
+
+Comprehensive guides for AI agents are available in [`docs/ai-rebuild/`](./docs/ai-rebuild/):
+
+- **[Complete Setup Guide](./docs/ai-rebuild/complete-setup-guide.md)** - Step-by-step autonomous setup
+- **[Troubleshooting Guide](./docs/ai-rebuild/troubleshooting.md)** - Error diagnosis and recovery
+- **[Performance Optimization](./docs/ai-rebuild/performance-optimization.md)** - Build and runtime optimization
+- **[Platform Notes](./docs/ai-rebuild/platform-notes.md)** - Platform-specific considerations
+- **[Agent Examples](./docs/ai-rebuild/agent-examples.md)** - Integration patterns and workflows
+
+### Performance Targets
+
+The AI rebuild system is optimized for:
+- **Build time:** <30 seconds (cold build)
+- **Cross-platform:** macOS, Linux, Windows, Alpine Linux
+- **Autonomous operation:** Complete error recovery and optimization
+- **Quality assurance:** Comprehensive validation and testing
 
 ## Description
 
