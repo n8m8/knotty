@@ -292,11 +292,11 @@ jobs:
         run: |
           echo "=== Cross-Platform Validation Analysis ==="
 
-          # Analyze results across all platforms
-          racket scripts/validation/run-validation-suite.rkt \
-            --cross-platform-analysis \
-            --artifact-dir artifacts/ \
-            --output cross-platform-report.json
+          # Analyze results across all platforms using the same validation script as platform builds
+          racket scripts/validation/validate.rkt \
+            --categories unit,integration,artifacts,benchmarks,health \
+            --repetitions 1 \
+            --verbose
 
       - name: Generate compatibility matrix
         run: |

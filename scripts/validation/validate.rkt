@@ -188,22 +188,28 @@
       '()))
 
 (define (run-test-file test-file)
-  (define-values (proc stdout stdin stderr)
-    (subprocess #f #f #f "racket" (path->string test-file)))
+  (define racket-exe (or (find-executable-path "racket") "racket"))
+  (define project-root (find-project-root))
+  (define absolute-test-path (if (absolute-path? test-file)
+                                test-file
+                                (build-path project-root test-file)))
+  (parameterize ([current-directory project-root])
+    (define-values (proc stdout stdin stderr)
+      (subprocess #f #f #f racket-exe (path->string absolute-test-path)))
 
-  (subprocess-wait proc)
-  (define exit-code (subprocess-status proc))
-  (define output (port->string stdout))
+    (subprocess-wait proc)
+    (define exit-code (subprocess-status proc))
+    (define output (port->string stdout))
 
-  (close-input-port stdout)
-  (close-output-port stdin)
-  (close-input-port stderr)
+    (close-input-port stdout)
+    (close-output-port stdin)
+    (close-input-port stderr)
 
-  (hash 'file (path->string test-file)
-        'exit-code exit-code
-        'passed (if (= exit-code 0) 1 0)
-        'failed (if (= exit-code 0) 0 1)
-        'output (substring output 0 (min (string-length output) 200))))
+    (hash 'file (path->string test-file)
+          'exit-code exit-code
+          'passed (if (= exit-code 0) 1 0)
+          'failed (if (= exit-code 0) 0 1)
+          'output (substring output 0 (min (string-length output) 200)))))
 
 (define (check-saxon-availability)
   (and (find-executable-path "java")
