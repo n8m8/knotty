@@ -34,7 +34,7 @@ on:
         type: boolean
 
 env:
-  RACKET_VERSION: '8.11'
+  RACKET_VERSION: '8.17'
   JAVA_VERSION: '11'
   SAXON_VERSION: '12.3'
   BUILD_TIMEOUT: '3600'  # 1 hour timeout
