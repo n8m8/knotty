@@ -119,7 +119,7 @@
                      (printf "Running scenario: ~a\n" (car scenario))
                      (run-integration-scenario scenario))
                    scenarios)]
-             [deps-available? (andmap identity dep-results)]
+             [deps-available? (andmap (lambda (x) x) dep-results)]
              [scenarios-passed? (andmap (lambda (r) (hash-ref r 'success? #f)) scenario-results)]
              [success? (and deps-available? scenarios-passed?)])
 
@@ -190,34 +190,31 @@
   (define enabled? (hash-ref (hash-ref config 'performance-benchmarks) 'enabled? #t))
 
   (if enabled?
-      (begin
+      (let ([benchmarks (hash-ref (hash-ref config 'performance-benchmarks) 'benchmarks '())]
+            [repetitions (hash-ref (hash-ref config 'performance-benchmarks) 'repetitions 5)])
         (printf "=== Running Performance Benchmarks ===\n")
 
-        (define benchmarks (hash-ref (hash-ref config 'performance-benchmarks) 'benchmarks '()))
-        (define repetitions (hash-ref (hash-ref config 'performance-benchmarks) 'repetitions 5))
+        (let ([benchmark-results
+               (map (lambda (benchmark)
+                      (let ([name (car benchmark)]
+                            [threshold (cadr benchmark)])
+                        (printf "Running benchmark: ~a (threshold: ~a)\n" name threshold)
+                        (run-single-benchmark name threshold repetitions)))
+                    benchmarks)])
+          (let ([passed-benchmarks (filter (lambda (r) (hash-ref r 'passed? #f)) benchmark-results)])
+            (let ([success? (= (length passed-benchmarks) (length benchmark-results))])
 
-        (define benchmark-results
-          (map (lambda (benchmark)
-                 (define name (car benchmark))
-                 (define threshold (cadr benchmark))
-                 (printf "Running benchmark: ~a (threshold: ~a)\n" name threshold)
-                 (run-single-benchmark name threshold repetitions))
-               benchmarks))
+              (printf "Benchmarks: ~a/~a passed (~a)\n"
+                      (length passed-benchmarks)
+                      (length benchmark-results)
+                      (if success? "✓" "✗"))
 
-        (define passed-benchmarks (filter (lambda (r) (hash-ref r 'passed? #f)) benchmark-results))
-        (define success? (= (length passed-benchmarks) (length benchmark-results)))
-
-        (printf "Benchmarks: ~a/~a passed (~a)\n"
-                (length passed-benchmarks)
-                (length benchmark-results)
-                (if success? "✓" "✗"))
-
-        (hash 'type "performance-benchmarks"
-              'enabled? #t
-              'success? success?
-              'total-benchmarks (length benchmarks)
-              'passed-benchmarks (length passed-benchmarks)
-              'benchmark-results benchmark-results))
+              (hash 'type "performance-benchmarks"
+                    'enabled? #t
+                    'success? success?
+                    'total-benchmarks (length benchmarks)
+                    'passed-benchmarks (length passed-benchmarks)
+                    'benchmark-results benchmark-results)))))
       (hash 'type "performance-benchmarks"
             'enabled? #f
             'success? #t
@@ -228,43 +225,42 @@
   (define enabled? (hash-ref (hash-ref config 'health-validation) 'enabled? #t))
 
   (if enabled?
-      (begin
+      (let ([components (hash-ref (hash-ref config 'health-validation) 'components '())])
         (printf "=== Validating System Health ===\n")
 
         ;; Check critical components
-        (define components (hash-ref (hash-ref config 'health-validation) 'components '()))
-        (define component-results
-          (map (lambda (component)
-                 (printf "Checking component: ~a\n" component)
-                 (check-component-health component))
-               components))
+        (let ([component-results
+               (map (lambda (component)
+                      (printf "Checking component: ~a\n" component)
+                      (check-component-health component))
+                    components)])
 
-        ;; Check integrations
-        (define integrations (hash-ref (hash-ref config 'health-validation) 'integrations '()))
-        (define integration-results
-          (map (lambda (integration)
-                 (define name (car integration))
-                 (define timeout (cadr integration))
-                 (printf "Checking integration: ~a\n" name)
-                 (check-integration-health name timeout))
-               integrations))
+          ;; Check integrations
+          (let ([integrations (hash-ref (hash-ref config 'health-validation) 'integrations '())])
+            (let ([integration-results
+                   (map (lambda (integration)
+                          (let ([name (car integration)]
+                                [timeout (cadr integration)])
+                            (printf "Checking integration: ~a\n" name)
+                            (check-integration-health name timeout)))
+                        integrations)])
 
-        (define components-healthy? (andmap (lambda (r) (hash-ref r 'healthy? #f)) component-results))
-        (define integrations-healthy? (andmap (lambda (r) (hash-ref r 'healthy? #f)) integration-results))
-        (define success? (and components-healthy? integrations-healthy?))
+              (let ([components-healthy? (andmap (lambda (r) (hash-ref r 'healthy? #f)) component-results)]
+                    [integrations-healthy? (andmap (lambda (r) (hash-ref r 'healthy? #f)) integration-results)])
+                (let ([success? (and components-healthy? integrations-healthy?)])
 
-        (printf "Health: Components ~a, Integrations ~a (~a)\n"
-                (if components-healthy? "✓" "✗")
-                (if integrations-healthy? "✓" "✗")
-                (if success? "✓" "✗"))
+                  (printf "Health: Components ~a, Integrations ~a (~a)\n"
+                          (if components-healthy? "✓" "✗")
+                          (if integrations-healthy? "✓" "✗")
+                          (if success? "✓" "✗"))
 
-        (hash 'type "health-validation"
-              'enabled? #t
-              'success? success?
-              'components-healthy? components-healthy?
-              'integrations-healthy? integrations-healthy?
-              'component-results component-results
-              'integration-results integration-results))
+                  (hash 'type "health-validation"
+                        'enabled? #t
+                        'success? success?
+                        'components-healthy? components-healthy?
+                        'integrations-healthy? integrations-healthy?
+                        'component-results component-results
+                        'integration-results integration-results)))))))
       (hash 'type "health-validation"
             'enabled? #f
             'success? #t
