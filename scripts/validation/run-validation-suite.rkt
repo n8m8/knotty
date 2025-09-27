@@ -320,26 +320,31 @@
 (define (run-test-file test-file)
   "Run a single test file and capture results"
   (define racket-exe (or (find-executable-path "racket") "racket"))
-  (define-values (proc stdout stdin stderr)
-    (subprocess #f #f #f racket-exe (path->string test-file)))
+  (define project-root (find-project-root))
+  (define absolute-test-path (if (absolute-path? test-file)
+                                test-file
+                                (build-path project-root test-file)))
+  (parameterize ([current-directory project-root])
+    (define-values (proc stdout stdin stderr)
+      (subprocess #f #f #f racket-exe (path->string absolute-test-path)))
 
-  (subprocess-wait proc)
-  (define exit-code (subprocess-status proc))
-  (define output (port->string stdout))
+    (subprocess-wait proc)
+    (define exit-code (subprocess-status proc))
+    (define output (port->string stdout))
 
-  (close-input-port stdout)
-  (close-output-port stdin)
-  (close-input-port stderr)
+    (close-input-port stdout)
+    (close-output-port stdin)
+    (close-input-port stderr)
 
-  ;; Parse simple test results (simplified)
-  (define passed (if (= exit-code 0) 1 0))
-  (define failed (if (= exit-code 0) 0 1))
+    ;; Parse simple test results (simplified)
+    (define passed (if (= exit-code 0) 1 0))
+    (define failed (if (= exit-code 0) 0 1))
 
-  (hash 'file (path->string test-file)
-        'exit-code exit-code
-        'passed passed
-        'failed failed
-        'output (if (< (string-length output) 500) output "")))
+    (hash 'file (path->string test-file)
+          'exit-code exit-code
+          'passed passed
+          'failed failed
+          'output (if (< (string-length output) 500) output ""))))
 
 (define (check-external-dependency dep-name)
   "Check if an external dependency is available"
