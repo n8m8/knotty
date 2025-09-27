@@ -24,3 +24,7 @@ knotty-lib/resources/backups
 *.xcf
 *.zip
 *.CHECKSUM
+
+# Saxon XSLT processor - JAR is bundled, but test files are ignored
+!lib/saxon-he-*.jar
+lib/test/

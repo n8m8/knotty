@@ -1,0 +1,331 @@
+# Docker Compose Configuration for Knotty DSL Development Stack
+# Provides complete development environment with all services and dependencies
+
+version: '3.8'
+
+# Shared configuration
+x-common-variables: &common-env
+  JAVA_HOME: /opt/java/openjdk
+  KNOTTY_ENV: development
+  RACKET_VERSION: 8.11
+  COMPOSE_PROJECT_NAME: knotty-dsl
+
+x-common-volumes: &common-volumes
+  - .:/app
+  - knotty-cache:/app/cache
+  - knotty-logs:/app/logs
+  - knotty-resources:/app/resources
+
+services:
+  # Main development environment
+  knotty-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+      args:
+        BUILD_TYPE: development
+        JAVA_VERSION: 17
+        SAXON_VERSION: 12.9
+    container_name: knotty-development
+    environment:
+      <<: *common-env
+      KNOTTY_DEV_MODE: "true"
+      RACKET_TRACE: "1"
+      LOG_LEVEL: debug
+    volumes:
+      <<: *common-volumes
+      # Development-specific mounts
+      - ~/.gitconfig:/home/knotty/.gitconfig:ro
+      - ~/.ssh:/home/knotty/.ssh:ro
+      - dev-home:/home/knotty
+    working_dir: /app
+    command: /bin/bash -c "dev-setup && exec /bin/bash"
+    stdin_open: true
+    tty: true
+    networks:
+      - knotty-network
+    ports:
+      - "8080:8080"  # Web server for documentation
+      - "8081:8081"  # Development server
+    healthcheck:
+      test: ["CMD", "racket", "-e", "(require \"lib/saxon-integration.rkt\") (test-saxon-installation)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Testing environment
+  knotty-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: testing
+      args:
+        BUILD_TYPE: testing
+    container_name: knotty-testing
+    environment:
+      <<: *common-env
+      KNOTTY_ENV: testing
+      CI: "true"
+      COVERAGE: "true"
+    volumes:
+      <<: *common-volumes
+      - test-results:/app/test-results
+      - coverage-reports:/app/coverage
+    working_dir: /app
+    command: /usr/local/bin/run-tests
+    depends_on:
+      - knotty-dev
+    networks:
+      - knotty-network
+    profiles:
+      - testing
+
+  # Production simulation
+  knotty-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        BUILD_TYPE: production
+    container_name: knotty-production
+    environment:
+      <<: *common-env
+      KNOTTY_ENV: production
+      LOG_LEVEL: info
+    volumes:
+      - knotty-cache:/app/cache
+      - knotty-logs:/app/logs
+      - prod-data:/app/data
+    working_dir: /app
+    command: racket --version
+    networks:
+      - knotty-network
+    profiles:
+      - production
+    restart: unless-stopped
+
+  # Documentation server
+  docs-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: knotty-docs
+    environment:
+      <<: *common-env
+      DOC_SERVER: "true"
+    volumes:
+      - .:/app:ro
+      - docs-build:/app/docs/build
+    working_dir: /app
+    command: |
+      /bin/bash -c "
+        echo 'Starting documentation server...';
+        mkdir -p docs/build;
+        # Generate documentation
+        if [ -f docs/build-docs.rkt ]; then
+          racket docs/build-docs.rkt || echo 'Documentation build script not ready';
+        fi;
+        # Simple HTTP server for now
+        cd docs && python3 -m http.server 8080 || racket -e '(require web-server/servlet-env) (serve/servlet void #:port 8080)'
+      "
+    ports:
+      - "8082:8080"
+    networks:
+      - knotty-network
+    depends_on:
+      - knotty-dev
+    profiles:
+      - docs
+
+  # Saxon XSLT validation service
+  saxon-validator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: saxon-validator
+    environment:
+      <<: *common-env
+      SERVICE_MODE: validator
+    volumes:
+      - .:/app:ro
+      - validation-cache:/app/cache
+    working_dir: /app
+    command: |
+      /bin/bash -c "
+        echo 'Saxon XSLT Validator Service';
+        # Validate Saxon installation
+        racket -e '(require \"lib/saxon-integration.rkt\") (test-saxon-installation)';
+        # Run validation loop
+        while true; do
+          echo 'Checking for validation requests...';
+          sleep 30;
+        done
+      "
+    networks:
+      - knotty-network
+    profiles:
+      - services
+    restart: unless-stopped
+
+  # Database for pattern storage (optional)
+  pattern-db:
+    image: postgres:15-alpine
+    container_name: knotty-patterns-db
+    environment:
+      POSTGRES_DB: knotty_patterns
+      POSTGRES_USER: knotty
+      POSTGRES_PASSWORD: knotty_dev_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - pattern-db-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - knotty-network
+    profiles:
+      - database
+      - full
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knotty -d knotty_patterns"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching (optional)
+  pattern-cache:
+    image: redis:7-alpine
+    container_name: knotty-cache
+    command: redis-server --appendonly yes
+    volumes:
+      - pattern-cache-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - knotty-network
+    profiles:
+      - cache
+      - full
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # File watcher for development
+  file-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: knotty-watcher
+    environment:
+      <<: *common-env
+      WATCH_MODE: "true"
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: |
+      /bin/bash -c "
+        echo 'Starting file watcher for auto-recompilation...';
+        apt-get update && apt-get install -y inotify-tools;
+        while inotifywait -r -e modify,create,delete lib/ knotty/ tests/; do
+          echo 'Files changed, recompiling...';
+          raco make lib/*.rkt || echo 'Compilation errors detected';
+          echo 'Recompilation complete';
+        done
+      "
+    depends_on:
+      - knotty-dev
+    networks:
+      - knotty-network
+    profiles:
+      - development
+      - watch
+
+  # Performance monitoring
+  performance-monitor:
+    image: prom/prometheus:latest
+    container_name: knotty-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - knotty-network
+    profiles:
+      - monitoring
+      - full
+
+# Networks
+networks:
+  knotty-network:
+    driver: bridge
+    name: knotty-dev-network
+
+# Named volumes for persistent data
+volumes:
+  # Development volumes
+  knotty-cache:
+    name: knotty-cache
+    driver: local
+  knotty-logs:
+    name: knotty-logs
+    driver: local
+  knotty-resources:
+    name: knotty-resources
+    driver: local
+  dev-home:
+    name: knotty-dev-home
+    driver: local
+
+  # Testing volumes
+  test-results:
+    name: knotty-test-results
+    driver: local
+  coverage-reports:
+    name: knotty-coverage
+    driver: local
+
+  # Production volumes
+  prod-data:
+    name: knotty-prod-data
+    driver: local
+
+  # Documentation volumes
+  docs-build:
+    name: knotty-docs-build
+    driver: local
+
+  # Service volumes
+  validation-cache:
+    name: knotty-validation-cache
+    driver: local
+  pattern-db-data:
+    name: knotty-pattern-db
+    driver: local
+  pattern-cache-data:
+    name: knotty-redis-cache
+    driver: local
+  prometheus-data:
+    name: knotty-prometheus
+    driver: local
+
+# Development quick-start profiles
+# Usage examples:
+#   docker-compose up                          # Basic development environment
+#   docker-compose --profile testing up       # Include testing
+#   docker-compose --profile full up          # Full stack with all services
+#   docker-compose --profile development up   # Development with file watching
