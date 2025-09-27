@@ -1,6 +1,6 @@
 #lang sweet-exp typed/racket
 
-require "knotty-lib/main.rkt"
+require "../knotty-lib/main.rkt"
 
 ;; Create cable pattern similar to quickstart Example 3
 define

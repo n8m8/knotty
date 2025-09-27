@@ -1,5 +1,5 @@
 #lang sweet-exp typed/racket
-require "knotty-lib/main.rkt"
+require "../knotty-lib/main.rkt"
 
 ; Test: Pattern with missing rows
 define

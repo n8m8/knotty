@@ -1,7 +1,7 @@
 #lang sweet-exp typed/racket
 ;; Test cable pattern from quickstart Example 3
 
-require "knotty-lib/main.rkt"
+require "../knotty-lib/main.rkt"
 
 (printf "=== Testing Cable Pattern from Quickstart Example 3 ===\n\n")
 
