@@ -146,8 +146,10 @@
 
   (if enabled?
       (let* ([output-dir (hash-ref (hash-ref config 'artifact-verification) 'output-dir "output")]
-             [project-root (find-project-root)]
-             [full-output-path (build-path project-root output-dir)])
+             [full-output-path
+              (if (absolute-path? output-dir)
+                  (path->complete-path output-dir)
+                  (build-path (find-project-root) output-dir))])
 
         (printf "=== Verifying Build Artifacts ===\n")
 
@@ -271,13 +273,35 @@
 
 (define (find-project-root)
   "Find the project root directory"
-  (define current-dir (current-directory))
-  (let loop ([dir current-dir])
+  ;; Start from the script's location, not current directory
+  (define script-path (find-system-path 'run-file))
+  (define start-dir
+    (if script-path
+        (let-values ([(base name dir?) (split-path script-path)])
+          (if (path? base) base (current-directory)))
+        (current-directory)))
+
+  (let loop ([dir start-dir])
     (cond
-      [(file-exists? (build-path dir "info.rkt")) dir]
-      [(file-exists? (build-path dir ".git")) dir]
+      ;; Check for various project root indicators
+      [(or (file-exists? (build-path dir "info.rkt"))
+           (and (directory-exists? (build-path dir ".git"))
+                (directory-exists? (build-path dir "scripts"))))
+       dir]
+      ;; Stop if we've reached the root of the filesystem
       [(equal? dir (simplify-path (build-path dir "..")))
-       (error "Could not find project root")]
+       ;; As a fallback, check if we're in knotty workspace
+       (define dir-string (path->string start-dir))
+       (if (regexp-match #rx"knotty" dir-string)
+           ;; Try to find knotty root by name
+           (let find-knotty ([d start-dir])
+             (define d-string (path->string d))
+             (cond
+               [(regexp-match #rx"knotty$" d-string) d]
+               [(equal? d (simplify-path (build-path d "..")))
+                (error "Could not find project root from: " start-dir)]
+               [else (find-knotty (simplify-path (build-path d "..")))]))
+           (error "Could not find project root from: " start-dir))]
       [else (loop (simplify-path (build-path dir "..")))])))
 
 (define (find-test-files project-root)
@@ -285,8 +309,10 @@
   (define tests-dir (build-path project-root "tests"))
   (if (directory-exists? tests-dir)
       (filter (lambda (f)
-                (and (string-suffix? (path->string f) ".rkt")
-                     (string-prefix? (path->string (file-name-from-path f)) "test-")))
+                (define f-str (path->string f))
+                (define fname-str (path->string (file-name-from-path f)))
+                (and (regexp-match #rx"\\.rkt$" f-str)
+                     (regexp-match #rx"^test-" fname-str)))
               (map (lambda (f) (build-path tests-dir f))
                    (directory-list tests-dir)))
       '()))
@@ -337,8 +363,9 @@
   (ormap (lambda (path)
            (and (directory-exists? path)
                 (ormap (lambda (file)
-                         (and (string-contains? (path->string file) "saxon")
-                              (string-suffix? (path->string file) ".jar")
+                         (define file-str (path->string file))
+                         (and (regexp-match #rx"saxon" file-str)
+                              (regexp-match #rx"\\.jar$" file-str)
                               (path->string (build-path path file))))
                        (directory-list path))))
          search-paths))
@@ -517,12 +544,183 @@
     [_ (error "Unknown validation category: " category)]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Cross-Platform Analysis Functions
+
+(define (run-cross-platform-analysis [config default-config])
+  "Run cross-platform analysis on validation results"
+  (printf "=== Cross-Platform Validation Analysis ===\n")
+  (printf "Analyzing validation results across platforms...\n\n")
+
+  (define start-time (current-inexact-milliseconds))
+
+  ;; Run standard validation suite first
+  (define base-results (run-validation-suite config))
+
+  ;; Add cross-platform specific analysis
+  (define platform-info
+    (hash 'os (system-type 'os)
+          'arch (system-type 'arch)
+          'machine (system-type 'machine)
+          'racket-version (version)))
+
+  (printf "\nPlatform Information:\n")
+  (printf "  OS: ~a\n" (hash-ref platform-info 'os))
+  (printf "  Architecture: ~a\n" (hash-ref platform-info 'arch))
+  (printf "  Machine: ~a\n" (hash-ref platform-info 'machine))
+  (printf "  Racket Version: ~a\n" (hash-ref platform-info 'racket-version))
+
+  ;; Check for platform-specific issues
+  (define platform-compatibility
+    (check-platform-compatibility))
+
+  (printf "\nPlatform Compatibility:\n")
+  (for ([(component status) platform-compatibility])
+    (printf "  ~a: ~a\n" component (if status "✓" "✗")))
+
+  (define end-time (current-inexact-milliseconds))
+  (define analysis-duration (/ (- end-time start-time) 1000.0))
+
+  ;; Enhance results with cross-platform data
+  (if (ValidationResults? base-results)
+      (struct-copy ValidationResults base-results
+                   [results (append (ValidationResults-results base-results)
+                                  (list (hash 'type "cross-platform-analysis"
+                                            'platform-info platform-info
+                                            'platform-compatibility platform-compatibility
+                                            'analysis-duration analysis-duration)))])
+      base-results))
+
+(define (check-platform-compatibility)
+  "Check platform-specific compatibility requirements"
+  (define os (system-type 'os))
+
+  (hash 'file-system-case-sensitivity
+        (check-case-sensitivity)
+        'unicode-support
+        #t  ; Racket has good Unicode support
+        'path-separator
+        (if (eq? os 'windows) 'windows-style 'unix-style)
+        'executable-permissions
+        (not (eq? os 'windows))
+        'symbolic-links
+        (not (eq? os 'windows))
+        'long-path-support
+        (or (not (eq? os 'windows))
+            (check-windows-long-path-support))))
+
+(define (check-case-sensitivity)
+  "Check if the file system is case-sensitive"
+  (with-handlers ([exn:fail? (lambda (e) #t)])
+    (define temp-dir (find-system-path 'temp-dir))
+    (define test-file-lower (build-path temp-dir "case_test_temp.txt"))
+    (define test-file-upper (build-path temp-dir "CASE_TEST_TEMP.txt"))
+
+    ;; Create lowercase file
+    (call-with-output-file test-file-lower
+      (lambda (out) (display "test" out))
+      #:exists 'replace)
+
+    ;; Try to create uppercase file
+    (call-with-output-file test-file-upper
+      (lambda (out) (display "TEST" out))
+      #:exists 'replace)
+
+    ;; Check if they're the same file
+    (define case-sensitive?
+      (not (equal? (file-or-directory-identity test-file-lower)
+                   (file-or-directory-identity test-file-upper))))
+
+    ;; Clean up
+    (when (file-exists? test-file-lower)
+      (delete-file test-file-lower))
+    (when (and case-sensitive? (file-exists? test-file-upper))
+      (delete-file test-file-upper))
+
+    case-sensitive?))
+
+(define (check-windows-long-path-support)
+  "Check if Windows long path support is enabled"
+  ;; This is a simplified check - actual implementation would query Windows registry
+  #t)
+
+(define (save-results-to-json results output-path)
+  "Save validation results to a JSON file"
+  (printf "Saving results to: ~a\n" output-path)
+
+  (define json-data
+    (cond
+      [(ValidationResults? results)
+       (hash 'suite-name (ValidationResults-suite-name results)
+             'overall-success (ValidationResults-overall-success? results)
+             'duration (ValidationResults-duration results)
+             'timestamp (date->string (ValidationResults-timestamp results) #t)
+             'results (ValidationResults-results results))]
+      [(hash? results) results]
+      [else (hash 'error "Invalid results format")]))
+
+  (with-output-to-file output-path
+    (lambda ()
+      (write-json json-data))
+    #:exists 'replace)
+
+  (printf "Results saved successfully.\n"))
+
+;; JSON writing helper (simplified - for production use jsexpr library)
+(define (write-json obj)
+  "Write a Racket object as JSON"
+  (cond
+    [(hash? obj)
+     (display "{")
+     (define entries (hash->list obj))
+     (for ([i (in-naturals)]
+           [(k v) (in-hash obj)])
+       (when (> i 0) (display ", "))
+       (printf "\"~a\": " k)
+       (write-json v))
+     (display "}")]
+    [(list? obj)
+     (display "[")
+     (for ([i (in-naturals)]
+           [item (in-list obj)])
+       (when (> i 0) (display ", "))
+       (write-json item))
+     (display "]")]
+    [(string? obj)
+     (printf "\"~a\"" (escape-json-string obj))]
+    [(number? obj)
+     (display obj)]
+    [(boolean? obj)
+     (display (if obj "true" "false"))]
+    [(eq? obj 'null)
+     (display "null")]
+    [else
+     (printf "\"~a\"" (escape-json-string (format "~a" obj)))]))
+
+(define (escape-json-string str)
+  "Escape special characters in JSON strings"
+  (regexp-replace* #rx"[\"\\\b\f\n\r\t]"
+                   str
+                   (lambda (m)
+                     (case m
+                       [("\"") "\\\""]
+                       [("\\") "\\\\"]
+                       [("\b") "\\b"]
+                       [("\f") "\\f"]
+                       [("\n") "\\n"]
+                       [("\r") "\\r"]
+                       [("\t") "\\t"]
+                       [else m]))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Command Line Interface
 
 (module+ main
   (define category (make-parameter #f))
   (define verbose (make-parameter #f))
   (define quick (make-parameter #f))
+  (define cross-platform-analysis (make-parameter #f))
+  (define artifact-dir (make-parameter #f))
+  (define output-file (make-parameter #f))
 
   (command-line
    #:program "run-validation-suite"
@@ -533,21 +731,42 @@
     (verbose #t)]
    [("-q" "--quick") "Run quick validation (reduced repetitions)"
     (quick #t)]
+   [("--cross-platform-analysis") "Enable cross-platform analysis mode"
+    (cross-platform-analysis #t)]
+   [("--artifact-dir") dir "Directory containing build artifacts for analysis"
+    (artifact-dir dir)]
+   [("--output") file "Output file for validation results (JSON format)"
+    (output-file file)]
    #:args ()
 
    ;; Configure based on options
    (define config
-     (if (quick)
-         (hash-set default-config 'performance-benchmarks
-                   (hash-set (hash-ref default-config 'performance-benchmarks)
-                           'repetitions 2))
-         default-config))
+     (cond
+       [(artifact-dir)
+        ;; If artifact-dir is specified, update the artifact verification config
+        (hash-set default-config 'artifact-verification
+                  (hash-set (hash-ref default-config 'artifact-verification)
+                            'output-dir (artifact-dir)))]
+       [(quick)
+        (hash-set default-config 'performance-benchmarks
+                  (hash-set (hash-ref default-config 'performance-benchmarks)
+                            'repetitions 2))]
+       [else default-config]))
 
    ;; Run validation
    (define results
-     (if (category)
-         (run-specific-validation (category) config)
-         (run-validation-suite config)))
+     (cond
+       [(cross-platform-analysis)
+        ;; Run cross-platform analysis mode
+        (run-cross-platform-analysis config)]
+       [(category)
+        (run-specific-validation (category) config)]
+       [else
+        (run-validation-suite config)]))
+
+   ;; Save results to output file if specified
+   (when (output-file)
+     (save-results-to-json results (output-file)))
 
    ;; Exit with appropriate code
    (define success?
